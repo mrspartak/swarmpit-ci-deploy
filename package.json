@@ -1,0 +1,31 @@
+{
+  "name": "swarmpit-ci-deploy",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cross-env DEBUG=1 nodemon ./index.js",
+    "start": "node ./index.js"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "pretty-quick --staged --pattern \"**/*.*(js|jsx)\""
+    }
+  },
+  "nodemonConfig": {
+    "ext": "js,mjs,json"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "cross-env": "^7.0.0",
+    "husky": "^4.2.3",
+    "nodemon": "^2.0.2",
+    "prettier": "^1.19.1",
+    "pretty-quick": "^2.0.1"
+  },
+  "dependencies": {
+    "axios": "^0.19.2",
+    "dotenv": "^8.2.0"
+  }
+}

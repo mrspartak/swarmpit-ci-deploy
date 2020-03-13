@@ -41,6 +41,9 @@ docker run -p 3050:3050 --name swarmpit-ci-deploy \
 Can redirect such links:
 ```
 //Redeploy
-https://app/redeploy
+GET /redeploy
+  query:
+    name: serviceName 
+    id: id of service
 
 ```

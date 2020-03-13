@@ -45,5 +45,25 @@ GET /redeploy
   query:
     name: serviceName 
     id: id of service
-
 ```
+
+Example with .gitlab-ci.yml  
+"apk add --update curl && rm -rf /var/cache/apk/*" you need this if you use docker:dind
+```yml
+deploy:
+  stage: deploy
+  before_script:
+   - apk add --update curl && rm -rf /var/cache/apk/*
+  script:
+   - curl "${DEPLOY_URL}/redeploy?key=${DEPLOY_KEY}&name=${DEPLOY_NAME}"
+  only:
+   - master
+```
+DEPLOY_URL - URL of this service, for example http://123.123.123.123:3052
+DEPLOY_KEY - IS AN APP_KEY variable
+DEPLOY_NAME - name of service you need to update  
+
+
+## TODO
+* Of course I can implement webhook support. Write down an issue if you need this
+* Maybe other stuff, like upscale or downscale service by name

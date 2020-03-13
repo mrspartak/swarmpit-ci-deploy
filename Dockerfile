@@ -6,6 +6,8 @@ WORKDIR /home/node/app
 
 USER node
 
-COPY . .
+RUN npm install --production
+
+COPY --chown=node:node . .
 
 CMD [ "npm", "start" ]

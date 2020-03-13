@@ -38,13 +38,18 @@ docker run -p 3050:3050 --name swarmpit-ci-deploy \
 ```
 
 ## Usage
-Can redirect such links:
+Redeployment. Service will try to download latest image and will restart.
 ```
-//Redeploy
 GET /redeploy
   query:
     name: serviceName 
     id: id of service
+
+RETURNS JSON
+{success: Boolean, error?}
+
+//example
+GET /redeploy?key={key}&name=frontend-app
 ```
 
 Example with .gitlab-ci.yml  

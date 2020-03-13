@@ -51,6 +51,12 @@
 		}
 	});
 
+	var [err, res] = await __.to( fetch(`/api/me`) )
+	if(err) {
+		console.error('Swarmpit API error. Can\'t start app', err.message)
+		process.exit()
+	}
+
 	/* serve requests */
 	const server = http.createServer(async (request, response) => {
 		let { pathname, query } = url.parse(request.url);

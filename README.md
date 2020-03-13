@@ -10,7 +10,7 @@ I made this app because Swarmpit can't update services from private repositories
 
 ## Environment variables
     #port app will be launched at
-    const APP_PORT = process.env.APP_PORT || 3020
+    const APP_PORT = process.env.APP_PORT || 3052
     const APP_KEY = process.env.APP_KEY
     key query to protect direct access
     You can also pass key via APP_KEY_CONFIG or APP_KEY_SECRET (docker config or secret file)

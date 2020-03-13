@@ -1,4 +1,4 @@
-# Simple Swarmpit API tool to redeploy services by name
+# Simple [Swarmpit](https://github.com/swarmpit/swarmpit) API tool to redeploy services by name
 I made this app because Swarmpit can't update services from private repositories, so I can use it in CI "deploy" stage via curl.
 
 [![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/assorium/swarmpit-ci-deploy?style=for-the-badge "Docker Cloud Automated build")](https://hub.docker.com/r/assorium/swarmpit-ci-deploy "Docker Cloud Automated build")

@@ -56,6 +56,7 @@
 		console.error('Swarmpit API error. Can\'t start app', err.message)
 		process.exit()
 	}
+	console.log('API is working fine')
 
 	/* serve requests */
 	const server = http.createServer(async (request, response) => {

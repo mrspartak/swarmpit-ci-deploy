@@ -63,7 +63,7 @@
 		let { pathname, query } = url.parse(request.url);
 		query = querystring.parse(query);
 
-		if (DEBUG) console.log(`req ${request.method}`, request.headers.host, pathname);
+		if(DEBUG) console.log(`req ${request.method}`, request.headers.host, pathname);
 
 		response.setHeader('Access-Control-Allow-Origin', '*');
 		response.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -109,7 +109,7 @@
 					}
 				})
 
-				if(redeployed == 0)
+				if(redeployed === 0)
 					return sendJSON(response, {success: false, error: 'Redeloyment failed'})
 
 				if(redeployed < id_list.length)

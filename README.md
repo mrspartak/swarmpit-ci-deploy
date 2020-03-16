@@ -1,12 +1,12 @@
 # Simple [Swarmpit](https://github.com/swarmpit/swarmpit) API tool to redeploy services by name
 I made this app because Swarmpit can't update services from private repositories, so I can use it in CI "deploy" stage via curl.
 
+[![Codacy Badge](https://img.shields.io/codacy/grade/0caa18d41856411481afd1c285dbd255?style=for-the-badge)](https://app.codacy.com/manual/assorium/swarmpit-ci-deploy)
 [![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/assorium/swarmpit-ci-deploy?style=for-the-badge "Docker Cloud Automated build")](https://hub.docker.com/r/assorium/swarmpit-ci-deploy "Docker Cloud Automated build")
 [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/assorium/swarmpit-ci-deploy?style=for-the-badge "Docker Cloud Build Status")](https://hub.docker.com/r/assorium/swarmpit-ci-deploy "Docker Cloud Build Status")
 [![Docker Pulls](https://img.shields.io/docker/pulls/assorium/swarmpit-ci-deploy?style=for-the-badge "Docker Pulls")](https://hub.docker.com/r/assorium/swarmpit-ci-deploy "Docker Pulls")  <br/>
 
 [![Latest Github tag](https://img.shields.io/github/v/tag/mrspartak/swarmpit-ci-deploy?sort=date&style=for-the-badge "Latest Github tag")](https://github.com/mrspartak/swarmpit-ci-deploy/releases "Latest Github tag")
-
 
 ## Environment variables
     #port app will be launched at
@@ -24,7 +24,6 @@ I made this app because Swarmpit can't update services from private repositories
     const SWARMPIT_AUTH = process.env.SWARMPIT_AUTH
     this is Bearer token, it could be obtained in Swampit > Profile Settings > API Access
     You can also pass this token via SWARMPIT_AUTH_CONFIG or SWARMPIT_AUTH_SECRET (docker config or secret file)
-
 
 ## Docker
 you can use config or secret file
@@ -66,8 +65,7 @@ deploy:
 ```
 DEPLOY_URL - URL of this service, for example http://123.123.123.123:3052
 DEPLOY_KEY - IS AN APP_KEY variable
-DEPLOY_NAME - name of service you need to update  
-
+DEPLOY_NAME - name of service you need to update
 
 ## TODO
 * Of course I can implement webhook support. Write down an issue if you need this

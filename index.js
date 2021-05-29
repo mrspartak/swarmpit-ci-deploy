@@ -73,8 +73,12 @@
 
 
 /* serve requests */
+	/*
+		/redeploy?key=123&name|id=123
+	*/
 	const server = http.createServer(async (request, response) => {
 		let { pathname, query } = url.parse(request.url);
+		let originalQuery = query
 		query = querystring.parse(query);
 
 		if(DEBUG) console.log(`req ${request.method}`, request.headers.host, pathname);
@@ -85,19 +89,29 @@
 		response.setHeader('Content-Type', 'application/json; charset=utf-8');
 
 		if(request.method == 'GET') {
-			if( APP_KEY && query.key != APP_KEY)
+			if(pathname == '/favicon.ico') {
+				return response.end()
+			}
+
+			if( APP_KEY && query.key != APP_KEY) {
+				await webhook(`REQUEST > APP_KEY_ERROR > ${originalQuery}`)
 				return sendJSON(response, {success: false, error: 'please provide correct key'})
+			}
 
 			if (pathname == '/redeploy') {
-				if(!query.id && !query.name) 
+				if(!query.id && !query.name) {
+					await webhook(`REQUEST > ID or NAME is missing > ${originalQuery}`)
 					return sendJSON(response, {success: false, error: 'query :id or :name must be provided'})
+				}
 
 				let id_list = query.id ? query.id.split(',') : []
 
 				if(query.name) {
 					var [err, services] = await __.to( fetch(`/api/services`) )
-					if(err) 
+					if(err) {
+						await webhook(`REQUEST > FETCH_ERROR > ${err.message}`)
 						return sendJSON(response, {success: false, error: err.message})
+					}
 
 					services = services.data
 					if(!services.length)
@@ -109,14 +123,17 @@
 					})
 				}
 
-				if(!id_list.length)
+				if(!id_list.length){
+					await webhook(`REQUEST > NO_SERVICES_FOUND > ${originalQuery}`)
 					return sendJSON(response, {success: false, error: 'no services found'})
+				}
 
 				let redeployed = 0
 				await __.asyncForEach(id_list, async (id) => {
 					var [err, done] = await __.to( fetch.post(`/api/services/${id}/redeploy`) )
 
 					if(err) {
+						await webhook(`REQUEST > REDEPLOY_ERROR > #${id} > ${err.message}`)
 						console.error('redeploy.err', id, err.message)
 					} else {
 						redeployed++
@@ -133,9 +150,19 @@
 			}
 		}
 
-		response.end( JSON.stringify({success: false, error: 'Path not found'}) );
+		return sendJSON(response, {success: false, error: 'Path not found'})
 	});
 
+/* start server */
+	server.listen(APP_PORT, async (err) => {
+		if (err) {
+			await webhook(`SERVER > START_ERROR > ${err.message}`)
+			return console.log('something bad happened', err.message);
+		}
+		console.log(`server is listening on ${APP_PORT}`);
+	});
+
+/* utils */
 	function sendJSON(res, data) {
 		return res.end( JSON.stringify(data) );
 	}
@@ -152,10 +179,4 @@
 		let url = ALERT_WEBHOOK.replace('{MESSAGE}', message)
 		return await axios.get(url)
 	}
-
-/* start server */
-	server.listen(APP_PORT, err => {
-		if (err) return console.log('something bad happened', err.message);
-		console.log(`server is listening on ${APP_PORT}`);
-	});
 })();

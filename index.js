@@ -10,6 +10,7 @@
 	/* config */
 	const APP_PORT = +process.env.APP_PORT || 3052;
 	const DEBUG = process.env.DEBUG || false;
+	const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK || false; //for alert is API key is lost for example
 
 	const SWARMPIT_URL = process.env.SWARMPIT_URL || 'http://127.0.0.1:888';
 
@@ -41,6 +42,7 @@
 		SWARMPIT_URL,
 		SWARMPIT_AUTH: !!SWARMPIT_AUTH,
 		APP_KEY: !!APP_KEY,
+		ALERT_WEBHOOK: !!ALERT_WEBHOOK
 	});
 
 	const fetch = axios.create({
@@ -50,15 +52,30 @@
 			'Accept': 'application/json'
 		}
 	});
+	const webhook_wetch = axios.create({
+		url: ALERT_WEBHOOK
+	});
 
-	var [err, res] = await __.to( fetch(`/api/me`) )
-	if(err) {
-		console.error('Swarmpit API error. Can\'t start app', err.message)
+//check if API is working
+	if(!await is_api_working()) {
+		console.log('API is not working')
+		if(ALERT_WEBHOOK) await webhook_wetch();
 		process.exit()
 	}
 	console.log('API is working fine')
 
-	/* serve requests */
+	if(ALERT_WEBHOOK) {
+		console.log('starting API check')
+		setInterval(async () => {
+			if(!await is_api_working()) {
+				console.log('API is not working')
+				webhook_wetch()
+			}
+		}, 60 * 5 * 1000) //each 5 minutes
+	}
+
+
+/* serve requests */
 	const server = http.createServer(async (request, response) => {
 		let { pathname, query } = url.parse(request.url);
 		query = querystring.parse(query);
@@ -125,8 +142,16 @@
 	function sendJSON(res, data) {
 		return res.end( JSON.stringify(data) );
 	}
+	async function is_api_working() {
+		var [err, res] = await __.to( fetch(`/api/me`) )
+		if(err) {
+			console.error('Swarmpit API error. Can\'t start app', err.message)
+			return false;
+		}
+		return true;
+	}
 
-	/* start server */
+/* start server */
 	server.listen(APP_PORT, err => {
 		if (err) return console.log('something bad happened', err.message);
 		console.log(`server is listening on ${APP_PORT}`);

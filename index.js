@@ -52,14 +52,14 @@
 			'Accept': 'application/json'
 		}
 	});
-	const webhook_wetch = axios.create({
+	const webhook_fetch = axios.create({
 		url: ALERT_WEBHOOK
 	});
 
 //check if API is working
 	if(!await is_api_working()) {
 		console.log('API is not working')
-		if(ALERT_WEBHOOK) await webhook_wetch();
+		if(ALERT_WEBHOOK) await webhook_fetch();
 		process.exit()
 	}
 	console.log('API is working fine')
@@ -69,7 +69,7 @@
 		setInterval(async () => {
 			if(!await is_api_working()) {
 				console.log('API is not working')
-				webhook_wetch()
+				webhook_fetch()
 			}
 		}, 60 * 5 * 1000) //each 5 minutes
 	}

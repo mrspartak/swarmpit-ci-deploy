@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "cross-env DEBUG=1 nodemon ./index.js",
-    "start": "node ./index.js"
+    "start": "node ./index.js",
+    "build": "docker build -t assorium/swarmpit-ci-deploy:latest . && docker push assorium/swarmpit-ci-deploy:latest"
   },
   "husky": {
     "hooks": {

@@ -132,7 +132,7 @@
 						await webhook(`REQUEST > REDEPLOY_ERROR > #${id} > ${err.message}`);
 						console.error('redeploy.err', id, err.message);
 					} else {
-						await webhook(`REQUEST > REDEPLOY_SUCCESS > #${id}`);
+						await webhook(`REQUEST > REDEPLOY_SUCCESS > #${query.name}`);
 						redeployed++;
 					}
 				});

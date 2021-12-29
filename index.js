@@ -79,7 +79,7 @@
 		let originalQuery = query;
 		query = querystring.parse(query);
 
-		if (DEBUG) console.log(`req ${request.method}`, request.headers.host, pathname);
+		if (DEBUG) console.log(`req ${request.method}`, request.headers.host, pathname, originalQuery);
 
 		response.setHeader('Access-Control-Allow-Origin', '*');
 		response.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -92,7 +92,7 @@
 			}
 
 			if (APP_KEY && query.key != APP_KEY) {
-				await webhook(`REQUEST > APP_KEY_ERROR > ${originalQuery}`);
+				//await webhook(`REQUEST > APP_KEY_ERROR > ${originalQuery}`);
 				return sendJSON(response, { success: false, error: 'please provide correct key' });
 			}
 

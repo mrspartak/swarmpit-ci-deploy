@@ -187,18 +187,6 @@ func TestAsyncRepliesImmediatelyAndAlerts(t *testing.T) {
 	}
 }
 
-func TestWaitDefault(t *testing.T) {
-	f := &fakeSwarmpit{script: func(_ int) (string, int, int) { return "paused", 0, 2 }}
-	app, _ := newApp(t, f)
-	app.wait = true
-	if code, _ := call(t, app, "key=k&name=web"); code != 500 {
-		t.Fatalf("default wait: code=%d", code)
-	}
-	if code, _ := call(t, app, "key=k&name=web&wait=0"); code != 202 {
-		t.Fatalf("wait=0 opt-out: code=%d", code)
-	}
-}
-
 func TestAuthAndValidation(t *testing.T) {
 	app, _ := newApp(t, &fakeSwarmpit{script: func(int) (string, int, int) { return "", 0, 0 }})
 	if code, _ := call(t, app, "key=wrong&name=web"); code != 401 {

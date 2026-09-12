@@ -1,0 +1,21 @@
+version: "2"
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - gosec
+    - revive
+    - bodyclose
+    - noctx
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck, gosec, bodyclose, noctx]
+formatters:
+  enable:
+    - gofmt

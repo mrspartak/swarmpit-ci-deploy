@@ -1,6 +1,7 @@
-node_modules
-npm-debug.log
-Dockerfile
-.dockerignore
 .git
 .gitignore
+.env
+tmp
+todo
+README.md
+LICENSE

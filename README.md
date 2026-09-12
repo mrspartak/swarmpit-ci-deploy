@@ -16,6 +16,7 @@ Single static Go binary, no dependencies, `FROM scratch` image (a few MB).
 | `SWARMPIT_URL` | `http://127.0.0.1:888` | Swarmpit base URL |
 | `SWARMPIT_AUTH` | | Bearer token from Swarmpit > Profile Settings > API Access, e.g. `Bearer eyJ...`. Can also come from `SWARMPIT_AUTH_CONFIG` / `SWARMPIT_AUTH_SECRET` |
 | `ALERT_WEBHOOK` | | GET URL with a `{MESSAGE}` placeholder, called on every deploy result and on errors. The message is url-encoded for you |
+| `WAIT_DEFAULT` | | set to `1` to make `/redeploy` block until the rollout converges unless the call passes `wait=0` |
 | `WATCH_TIMEOUT` | `300` | seconds to wait for a rollout to converge before reporting failure |
 | `WATCH_SETTLE` | `30` | seconds all replicas must stay running after the update completes (catches crash loops) |
 | `WATCH_INTERVAL` | `3` | seconds between Swarmpit polls |
@@ -43,7 +44,7 @@ GET /redeploy
     key:     APP_KEY
     name:    service name            (or)
     id:      service id, comma separated
-    wait:    1 to block until the rollout converges (recommended for CI)
+    wait:    1 to block until the rollout converges (recommended for CI), 0 to return at once; default from WAIT_DEFAULT
     timeout: override WATCH_TIMEOUT in seconds for this call
 
 RETURNS JSON {success: Boolean, error?: String}
@@ -57,7 +58,7 @@ Every redeploy is watched, with or without `wait`:
 | rollback / paused | update state `rollback_*` or `paused` | webhook `DEPLOY > FAILED > #name > update rollback_completed: ... \| tasks: failed: task: non-zero exit (1)`, HTTP 500 |
 | crash loop / stuck | replicas never stay up before `WATCH_TIMEOUT` | webhook `DEPLOY > FAILED > #name > timeout after 5m0s: ...`, HTTP 500 |
 
-Without `wait` the request returns `202` immediately and only the webhook reports the outcome.
+Without `wait` (and without `WAIT_DEFAULT`) the request returns `202` immediately and only the webhook reports the outcome.
 For rollback detection to work, give your services an update policy, e.g. in the stack file:
 ```yml
 deploy:

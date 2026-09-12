@@ -24,6 +24,7 @@ type App struct {
 	key     string
 	webhook string
 	debug   bool
+	wait    bool // block /redeploy until the rollout converges unless wait=0 is passed
 	sp      *Swarmpit
 	watch   WatchOptions
 }
@@ -45,6 +46,7 @@ func main() {
 		key:     key,
 		webhook: webhook,
 		debug:   debug,
+		wait:    os.Getenv("WAIT_DEFAULT") != "" && os.Getenv("WAIT_DEFAULT") != "0",
 		sp:      NewSwarmpit(swarmpitURL, auth, debug),
 		watch: WatchOptions{
 			Timeout:  time.Duration(envInt("WATCH_TIMEOUT", 300)) * time.Second,
@@ -53,8 +55,8 @@ func main() {
 		},
 	}
 
-	log.Printf("APP_CONFIG port=%d debug=%v swarmpit=%q auth=%v key=%v webhook=%v watch=%+v", //nolint:gosec // operator-provided config, %q-quoted
-		port, debug, swarmpitURL, auth != "", key != "", webhook != "", app.watch)
+	log.Printf("APP_CONFIG port=%d debug=%v swarmpit=%q auth=%v key=%v webhook=%v wait=%v watch=%+v", //nolint:gosec // operator-provided config, %q-quoted
+		port, debug, swarmpitURL, auth != "", key != "", webhook != "", app.wait, app.watch)
 
 	if err := app.sp.Ping(context.Background()); err != nil {
 		app.alert("APP_INIT > Api is not working > " + err.Error())
@@ -93,7 +95,7 @@ func main() {
 	}
 }
 
-// redeploy handles GET /redeploy?key=&name=|id=[&wait=1][&timeout=seconds]
+// redeploy handles GET /redeploy?key=&name=|id=[&wait=0|1][&timeout=seconds]
 func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if a.key != "" && q.Get("key") != a.key {
@@ -143,7 +145,10 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	if t, err := strconv.Atoi(q.Get("timeout")); err == nil && t > 0 {
 		opts.Timeout = time.Duration(t) * time.Second
 	}
-	wait := q.Get("wait") != "" && q.Get("wait") != "0"
+	wait := a.wait
+	if v := q.Get("wait"); v != "" {
+		wait = v != "0"
+	}
 
 	// Trigger every redeploy first so one slow service does not delay the others.
 	var started []Service

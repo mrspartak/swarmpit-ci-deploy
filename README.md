@@ -43,10 +43,21 @@ GET /redeploy
     key:     APP_KEY
     name:    service name            (or)
     id:      service id, comma separated
-    wait:    1 to block until the rollout converges (recommended for CI)
+    wait:    1 to block until the rollout converges (see /redeploy/status for a proxy-friendly alternative)
     timeout: override WATCH_TIMEOUT in seconds for this call
 
-RETURNS JSON {success: Boolean, error?: String}
+RETURNS JSON {success: Boolean, error?: String, deploy: String}
+        the deploy ID is also sent as the X-Deploy-ID response header
+
+GET /redeploy/status
+  query:
+    key:     APP_KEY
+    deploy:  the deploy ID returned by /redeploy
+
+RETURNS JSON {success: Boolean, error?: String, deploy: String, done: Boolean,
+              services: {name: {state: "running"|"ok"|"failed", error?: String}}}
+        HTTP 202 while any service is still rolling out, 200 when all converged,
+        500 when any failed, 404 when the ID is unknown or older than an hour
 ```
 
 Every redeploy is watched, with or without `wait`:
@@ -57,7 +68,8 @@ Every redeploy is watched, with or without `wait`:
 | rollback / paused | update state `rollback_*` or `paused` | webhook `DEPLOY > FAILED > #name > update rollback_completed: ... \| tasks: failed: task: non-zero exit (1)`, HTTP 500 |
 | crash loop / stuck | replicas never stay up before `WATCH_TIMEOUT` | webhook `DEPLOY > FAILED > #name > timeout after 5m0s: ...`, HTTP 500 |
 
-Without `wait` the request returns `202` immediately and only the webhook reports the outcome.
+Without `wait` the request returns `202` immediately with the deploy ID; poll `/redeploy/status` for the outcome, or rely on the webhook.
+Deploy state lives in memory of this single instance: a restart forgets running deploys and `/redeploy/status` answers `404`.
 For rollback detection to work, give your services an update policy, e.g. in the stack file:
 ```yml
 deploy:
@@ -68,15 +80,25 @@ deploy:
 and a `HEALTHCHECK` in the image, otherwise Docker considers any started container a success.
 
 ### GitLab CI
-`curl -f` makes the job fail when the deploy fails.
+Trigger the deploy, then poll its status. `curl -f` makes the job fail when the deploy fails,
+and no single request runs long enough for a proxy to drop it.
 ```yml
 deploy:
   stage: deploy
   image: curlimages/curl
   script:
-    - curl -fsS --max-time 600 "${DEPLOY_URL}/redeploy?key=${DEPLOY_KEY}&name=${DEPLOY_NAME}&wait=1"
+    - ID=$(curl -fsS -D - -o /dev/null "${DEPLOY_URL}/redeploy?key=${DEPLOY_KEY}&name=${DEPLOY_NAME}" | tr -d '\r' | awk 'tolower($1)=="x-deploy-id:"{print $2}')
+    - |
+      while [ "$(curl -sS -o /dev/null -w '%{http_code}' "${DEPLOY_URL}/redeploy/status?key=${DEPLOY_KEY}&deploy=${ID}")" = 202 ]; do
+        sleep 5
+      done
+    - curl -fsS "${DEPLOY_URL}/redeploy/status?key=${DEPLOY_KEY}&deploy=${ID}"
   only:
     - master
+```
+If your proxy allows long requests, a single blocking call still works:
+```yml
+    - curl -fsS --max-time 600 "${DEPLOY_URL}/redeploy?key=${DEPLOY_KEY}&name=${DEPLOY_NAME}&wait=1"
 ```
 DEPLOY_URL - URL of this service, for example http://123.123.123.123:3052
 DEPLOY_KEY - the APP_KEY value

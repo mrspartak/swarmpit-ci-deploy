@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ type App struct {
 	debug   bool
 	sp      *Swarmpit
 	watch   WatchOptions
+	deploys *Deploys
 }
 
 func main() {
@@ -46,6 +48,7 @@ func main() {
 		webhook: webhook,
 		debug:   debug,
 		sp:      NewSwarmpit(swarmpitURL, auth, debug),
+		deploys: NewDeploys(),
 		watch: WatchOptions{
 			Timeout:  time.Duration(envInt("WATCH_TIMEOUT", 300)) * time.Second,
 			Settle:   time.Duration(envInt("WATCH_SETTLE", 30)) * time.Second,
@@ -77,6 +80,7 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /redeploy", app.redeploy)
+	mux.HandleFunc("GET /redeploy/status", app.status)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		app.reply(w, http.StatusNotFound, "Path not found")
 	})
@@ -93,7 +97,9 @@ func main() {
 	}
 }
 
-// redeploy handles GET /redeploy?key=&name=|id=[&wait=1][&timeout=seconds]
+// redeploy handles GET /redeploy?key=&name=|id=[&wait=1][&timeout=seconds].
+// Every response carries the deploy ID (JSON "deploy" and X-Deploy-ID header)
+// for polling via /redeploy/status.
 func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if a.key != "" && q.Get("key") != a.key {
@@ -147,10 +153,14 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger every redeploy first so one slow service does not delay the others.
 	var started []Service
+	var names []string
+	triggerErrors := map[string]string{}
 	for _, s := range targets {
+		names = append(names, s.ServiceName)
 		if err := a.sp.Redeploy(ctx, s.ID); err != nil {
 			a.alert(fmt.Sprintf("REQUEST > REDEPLOY_ERROR > #%s > %s", s.ServiceName, err))
 			log.Printf("redeploy.err %s: %v", s.ServiceName, err)
+			triggerErrors[s.ServiceName] = err.Error()
 			continue
 		}
 		started = append(started, s)
@@ -160,6 +170,9 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 		a.reply(w, http.StatusBadGateway, "Redeployment failed")
 		return
 	}
+	dep := a.deploys.Start(names, triggerErrors)
+	w.Header().Set("X-Deploy-ID", dep.ID)
+	extra := map[string]any{"deploy": dep.ID}
 
 	// Watch outcomes, detached from the request so a client disconnect never stops alerting.
 	var wg sync.WaitGroup
@@ -170,6 +183,7 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 		go func(s Service) { //nolint:gosec // deliberately detached from the request context so a client disconnect never stops alerting
 			defer wg.Done()
 			err := Watch(context.Background(), a.sp, s.ID, s.Version, since, opts)
+			a.deploys.Finish(dep, s.ServiceName, err)
 			if err != nil {
 				log.Printf("deploy.failed %s: %v", s.ServiceName, err)
 				a.alert(fmt.Sprintf("DEPLOY > FAILED > #%s > %s", s.ServiceName, err))
@@ -186,30 +200,74 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	if !wait {
 		go wg.Wait()
 		if len(started) < len(targets) {
-			a.reply(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)))
+			a.replyWith(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)), extra)
 			return
 		}
-		a.reply(w, http.StatusAccepted, "")
+		a.replyWith(w, http.StatusAccepted, "", extra)
 		return
 	}
 
 	wg.Wait()
 	switch {
 	case len(failed) > 0:
-		a.reply(w, http.StatusInternalServerError, strings.Join(failed, " || "))
+		a.replyWith(w, http.StatusInternalServerError, strings.Join(failed, " || "), extra)
 	case len(started) < len(targets):
-		a.reply(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)))
+		a.replyWith(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)), extra)
 	default:
-		a.reply(w, http.StatusOK, "")
+		a.replyWith(w, http.StatusOK, "", extra)
+	}
+}
+
+// status handles GET /redeploy/status?key=&deploy=<id> and reports the outcome
+// of an earlier /redeploy call: 202 while any service is still rolling out,
+// 200 when all converged, 500 when any failed, 404 for an unknown/expired ID.
+func (a *App) status(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if a.key != "" && q.Get("key") != a.key {
+		a.reply(w, http.StatusUnauthorized, "please provide correct key")
+		return
+	}
+	id := q.Get("deploy")
+	if id == "" {
+		a.reply(w, http.StatusBadRequest, "query :deploy must be provided")
+		return
+	}
+	services, done, found := a.deploys.Get(id)
+	if !found {
+		a.reply(w, http.StatusNotFound, "deploy not found")
+		return
+	}
+	extra := map[string]any{"deploy": id, "done": done, "services": services}
+	var failed []string
+	for name, res := range services {
+		if res.State == "failed" {
+			failed = append(failed, name+": "+res.Error)
+		}
+	}
+	sort.Strings(failed)
+	switch {
+	case !done:
+		a.replyWith(w, http.StatusAccepted, "", extra)
+	case len(failed) > 0:
+		a.replyWith(w, http.StatusInternalServerError, strings.Join(failed, " || "), extra)
+	default:
+		a.replyWith(w, http.StatusOK, "", extra)
 	}
 }
 
 func (a *App) reply(w http.ResponseWriter, status int, errMsg string) {
+	a.replyWith(w, status, errMsg, nil)
+}
+
+func (a *App) replyWith(w http.ResponseWriter, status int, errMsg string, extra map[string]any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	body := map[string]any{"success": errMsg == ""}
 	if errMsg != "" {
 		body["error"] = errMsg
+	}
+	for k, v := range extra {
+		body[k] = v
 	}
 	_ = json.NewEncoder(w).Encode(body)
 }

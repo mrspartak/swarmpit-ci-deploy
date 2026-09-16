@@ -79,17 +79,46 @@ func newApp(t *testing.T, f *fakeSwarmpit) (*App, func() []string) {
 		key:     "k",
 		webhook: hook.URL + "/?m={MESSAGE}",
 		sp:      NewSwarmpit(sp.URL, "Bearer x", false),
+		deploys: NewDeploys(),
 		watch:   WatchOptions{Timeout: 2 * time.Second, Settle: 50 * time.Millisecond, Interval: 10 * time.Millisecond},
 	}, snapshot
 }
 
 func call(t *testing.T, app *App, query string) (int, map[string]any) {
 	t.Helper()
+	code, body, _ := callRec(t, app, query)
+	return code, body
+}
+
+func callRec(t *testing.T, app *App, query string) (int, map[string]any, *httptest.ResponseRecorder) {
+	t.Helper()
 	rec := httptest.NewRecorder()
 	app.redeploy(rec, httptest.NewRequest(http.MethodGet, "/redeploy?"+query, nil))
 	var body map[string]any
 	json.NewDecoder(rec.Body).Decode(&body)
+	return rec.Code, body, rec
+}
+
+func status(t *testing.T, app *App, query string) (int, map[string]any) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	app.status(rec, httptest.NewRequest(http.MethodGet, "/redeploy/status?"+query, nil))
+	var body map[string]any
+	json.NewDecoder(rec.Body).Decode(&body)
 	return rec.Code, body
+}
+
+// pollStatus polls until the deploy is done or the deadline passes.
+func pollStatus(t *testing.T, app *App, id string) (int, map[string]any) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		code, body := status(t, app, "key=k&deploy="+id)
+		if code != 202 || time.Now().After(deadline) {
+			return code, body
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestWaitSuccess(t *testing.T) {
@@ -184,6 +213,88 @@ func TestAsyncRepliesImmediatelyAndAlerts(t *testing.T) {
 	}
 	if !contains(alerts(), "DEPLOY > FAILED > #web") {
 		t.Fatalf("alerts=%v", alerts())
+	}
+}
+
+func TestStatusPollingSuccess(t *testing.T) {
+	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
+		if p < 4 {
+			return "updating", 0, 2
+		}
+		return "completed", 2, 2
+	}}
+	app, _ := newApp(t, f)
+	code, body, rec := callRec(t, app, "key=k&name=web")
+	id, _ := body["deploy"].(string)
+	if code != 202 || id == "" || rec.Header().Get("X-Deploy-ID") != id {
+		t.Fatalf("got %d %v header=%q", code, body, rec.Header().Get("X-Deploy-ID"))
+	}
+	if c, b := status(t, app, "key=k&deploy="+id); c != 202 || b["done"] != false {
+		t.Fatalf("first status: %d %v", c, b)
+	}
+	code, body = pollStatus(t, app, id)
+	if code != 200 || body["success"] != true || body["done"] != true {
+		t.Fatalf("final status: %d %v", code, body)
+	}
+	svc := body["services"].(map[string]any)["web"].(map[string]any)
+	if svc["state"] != "ok" {
+		t.Fatalf("services=%v", body["services"])
+	}
+}
+
+func TestStatusPollingFailure(t *testing.T) {
+	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
+		if p < 3 {
+			return "updating", 1, 2
+		}
+		return "rollback_completed", 2, 2
+	}}
+	app, _ := newApp(t, f)
+	_, body := call(t, app, "key=k&name=web")
+	id := body["deploy"].(string)
+	code, body := pollStatus(t, app, id)
+	msg, _ := body["error"].(string)
+	if code != 500 || body["success"] != false || !strings.Contains(msg, "rollback_completed") {
+		t.Fatalf("final status: %d %v", code, body)
+	}
+}
+
+func TestStatusWaitAlsoReturnsID(t *testing.T) {
+	f := &fakeSwarmpit{script: func(_ int) (string, int, int) { return "completed", 2, 2 }}
+	app, _ := newApp(t, f)
+	code, body := call(t, app, "key=k&name=web&wait=1")
+	id, _ := body["deploy"].(string)
+	if code != 200 || id == "" {
+		t.Fatalf("got %d %v", code, body)
+	}
+	if c, b := status(t, app, "key=k&deploy="+id); c != 200 || b["done"] != true {
+		t.Fatalf("status: %d %v", c, b)
+	}
+}
+
+func TestStatusAuthAndNotFound(t *testing.T) {
+	app, _ := newApp(t, &fakeSwarmpit{script: func(int) (string, int, int) { return "", 0, 0 }})
+	if code, _ := status(t, app, "key=wrong&deploy=x"); code != 401 {
+		t.Fatalf("code=%d", code)
+	}
+	if code, _ := status(t, app, "key=k"); code != 400 {
+		t.Fatalf("code=%d", code)
+	}
+	if code, _ := status(t, app, "key=k&deploy=nope"); code != 404 {
+		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestDeploysSweepExpired(t *testing.T) {
+	d := NewDeploys()
+	old := d.Start([]string{"a"}, nil)
+	d.Finish(old, "a", nil)
+	d.mu.Lock()
+	old.finished = time.Now().Add(-2 * deployTTL)
+	d.mu.Unlock()
+	d.Start([]string{"b"}, nil) // triggers sweep
+	if _, _, found := d.Get(old.ID); found {
+		t.Fatal("expired deploy still present")
 	}
 }
 

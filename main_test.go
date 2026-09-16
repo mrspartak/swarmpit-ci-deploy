@@ -121,7 +121,7 @@ func pollStatus(t *testing.T, app *App, id string) (int, map[string]any) {
 	}
 }
 
-func TestWaitSuccess(t *testing.T) {
+func TestSuccess(t *testing.T) {
 	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
 		if p < 4 {
 			return "updating", 0, 2
@@ -129,9 +129,13 @@ func TestWaitSuccess(t *testing.T) {
 		return "completed", 2, 2
 	}}
 	app, alerts := newApp(t, f)
-	code, body := call(t, app, "key=k&name=web&wait=1")
-	if code != 200 || body["success"] != true {
+	code, body := call(t, app, "key=k&name=web")
+	if code != 202 || body["success"] != true {
 		t.Fatalf("got %d %v", code, body)
+	}
+	code, body = pollStatus(t, app, body["deploy"].(string))
+	if code != 200 || body["success"] != true {
+		t.Fatalf("status %d %v", code, body)
 	}
 	if n := atomic.LoadInt32(&f.redeploys); n != 1 {
 		t.Fatalf("redeploys=%d", n)
@@ -141,7 +145,7 @@ func TestWaitSuccess(t *testing.T) {
 	}
 }
 
-func TestWaitRollbackReportsTaskError(t *testing.T) {
+func TestRollbackReportsTaskError(t *testing.T) {
 	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
 		if p < 3 {
 			return "updating", 1, 2
@@ -155,7 +159,8 @@ func TestWaitRollbackReportsTaskError(t *testing.T) {
 	f.tasks[0].Status.Error = "task: non-zero exit (1)"
 	f.tasks[1].Status.Error = "ancient failure"
 	app, alerts := newApp(t, f)
-	code, body := call(t, app, "key=k&name=web&wait=1")
+	_, body := call(t, app, "key=k&name=web")
+	code, body := pollStatus(t, app, body["deploy"].(string))
 	if code != 500 || body["success"] != false {
 		t.Fatalf("got %d %v", code, body)
 	}
@@ -168,7 +173,7 @@ func TestWaitRollbackReportsTaskError(t *testing.T) {
 	}
 }
 
-func TestWaitCrashLoopNeverSettles(t *testing.T) {
+func TestCrashLoopNeverSettles(t *testing.T) {
 	// Update completes but replicas keep flapping: must end in timeout.
 	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
 		if p%3 == 0 {
@@ -177,7 +182,8 @@ func TestWaitCrashLoopNeverSettles(t *testing.T) {
 		return "completed", 2, 2
 	}}
 	app, _ := newApp(t, f)
-	code, body := call(t, app, "key=k&name=web&wait=1&timeout=1")
+	_, body := call(t, app, "key=k&name=web&timeout=1")
+	code, body := pollStatus(t, app, body["deploy"].(string))
 	if code != 500 || !strings.Contains(body["error"].(string), "timeout") {
 		t.Fatalf("got %d %v", code, body)
 	}
@@ -216,7 +222,7 @@ func TestAsyncRepliesImmediatelyAndAlerts(t *testing.T) {
 	}
 }
 
-func TestStatusPollingSuccess(t *testing.T) {
+func TestStatusPollingSuccessWithHeader(t *testing.T) {
 	f := &fakeSwarmpit{script: func(p int) (string, int, int) {
 		if p < 4 {
 			return "updating", 0, 2
@@ -256,19 +262,6 @@ func TestStatusPollingFailure(t *testing.T) {
 	msg, _ := body["error"].(string)
 	if code != 500 || body["success"] != false || !strings.Contains(msg, "rollback_completed") {
 		t.Fatalf("final status: %d %v", code, body)
-	}
-}
-
-func TestStatusWaitAlsoReturnsID(t *testing.T) {
-	f := &fakeSwarmpit{script: func(_ int) (string, int, int) { return "completed", 2, 2 }}
-	app, _ := newApp(t, f)
-	code, body := call(t, app, "key=k&name=web&wait=1")
-	id, _ := body["deploy"].(string)
-	if code != 200 || id == "" {
-		t.Fatalf("got %d %v", code, body)
-	}
-	if c, b := status(t, app, "key=k&deploy="+id); c != 200 || b["done"] != true {
-		t.Fatalf("status: %d %v", c, b)
 	}
 }
 

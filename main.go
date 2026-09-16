@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -97,9 +96,9 @@ func main() {
 	}
 }
 
-// redeploy handles GET /redeploy?key=&name=|id=[&wait=1][&timeout=seconds].
-// Every response carries the deploy ID (JSON "deploy" and X-Deploy-ID header)
-// for polling via /redeploy/status.
+// redeploy handles GET /redeploy?key=&name=|id=[&timeout=seconds].
+// It triggers the rollouts and returns 202 at once with the deploy ID
+// (JSON "deploy" and X-Deploy-ID header) for polling via /redeploy/status.
 func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if a.key != "" && q.Get("key") != a.key {
@@ -149,8 +148,6 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	if t, err := strconv.Atoi(q.Get("timeout")); err == nil && t > 0 {
 		opts.Timeout = time.Duration(t) * time.Second
 	}
-	wait := q.Get("wait") != "" && q.Get("wait") != "0"
-
 	// Trigger every redeploy first so one slow service does not delay the others.
 	var started []Service
 	var names []string
@@ -174,22 +171,14 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Deploy-ID", dep.ID)
 	extra := map[string]any{"deploy": dep.ID}
 
-	// Watch outcomes, detached from the request so a client disconnect never stops alerting.
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var failed []string
+	// Watch outcomes in the background; the request never blocks on the rollout.
 	for _, s := range started {
-		wg.Add(1)
 		go func(s Service) { //nolint:gosec // deliberately detached from the request context so a client disconnect never stops alerting
-			defer wg.Done()
 			err := Watch(context.Background(), a.sp, s.ID, s.Version, since, opts)
 			a.deploys.Finish(dep, s.ServiceName, err)
 			if err != nil {
 				log.Printf("deploy.failed %s: %v", s.ServiceName, err)
 				a.alert(fmt.Sprintf("DEPLOY > FAILED > #%s > %s", s.ServiceName, err))
-				mu.Lock()
-				failed = append(failed, s.ServiceName+": "+err.Error())
-				mu.Unlock()
 				return
 			}
 			log.Printf("deploy.ok %s", s.ServiceName)
@@ -197,25 +186,11 @@ func (a *App) redeploy(w http.ResponseWriter, r *http.Request) {
 		}(s)
 	}
 
-	if !wait {
-		go wg.Wait()
-		if len(started) < len(targets) {
-			a.replyWith(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)), extra)
-			return
-		}
-		a.replyWith(w, http.StatusAccepted, "", extra)
+	if len(started) < len(targets) {
+		a.replyWith(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)), extra)
 		return
 	}
-
-	wg.Wait()
-	switch {
-	case len(failed) > 0:
-		a.replyWith(w, http.StatusInternalServerError, strings.Join(failed, " || "), extra)
-	case len(started) < len(targets):
-		a.replyWith(w, http.StatusBadGateway, fmt.Sprintf("Not every service was redeployed %d/%d", len(started), len(targets)), extra)
-	default:
-		a.replyWith(w, http.StatusOK, "", extra)
-	}
+	a.replyWith(w, http.StatusAccepted, "", extra)
 }
 
 // status handles GET /redeploy/status?key=&deploy=<id> and reports the outcome

@@ -43,11 +43,11 @@ GET /redeploy
     key:     APP_KEY
     name:    service name            (or)
     id:      service id, comma separated
-    wait:    1 to block until the rollout converges (see /redeploy/status for a proxy-friendly alternative)
     timeout: override WATCH_TIMEOUT in seconds for this call
 
-RETURNS JSON {success: Boolean, error?: String, deploy: String}
-        the deploy ID is also sent as the X-Deploy-ID response header
+RETURNS HTTP 202 and JSON {success: Boolean, error?: String, deploy: String}
+        as soon as the rollouts are triggered; it never blocks on the rollout.
+        The deploy ID is also sent as the X-Deploy-ID response header.
 
 GET /redeploy/status
   query:
@@ -60,16 +60,17 @@ RETURNS JSON {success: Boolean, error?: String, deploy: String, done: Boolean,
         500 when any failed, 404 when the ID is unknown or older than an hour
 ```
 
-Every redeploy is watched, with or without `wait`:
+Every redeploy is watched in the background. Poll `/redeploy/status` for the outcome, or rely on the webhook:
 
 | Outcome | Detected by | Result |
 | --- | --- | --- |
-| success | Docker update state `completed` and all replicas running for `WATCH_SETTLE` | webhook `DEPLOY > SUCCESS > #name`, HTTP 200 |
-| rollback / paused | update state `rollback_*` or `paused` | webhook `DEPLOY > FAILED > #name > update rollback_completed: ... \| tasks: failed: task: non-zero exit (1)`, HTTP 500 |
-| crash loop / stuck | replicas never stay up before `WATCH_TIMEOUT` | webhook `DEPLOY > FAILED > #name > timeout after 5m0s: ...`, HTTP 500 |
+| success | Docker update state `completed` and all replicas running for `WATCH_SETTLE` | webhook `DEPLOY > SUCCESS > #name`, status HTTP 200 |
+| rollback / paused | update state `rollback_*` or `paused` | webhook `DEPLOY > FAILED > #name > update rollback_completed: ... \| tasks: failed: task: non-zero exit (1)`, status HTTP 500 |
+| crash loop / stuck | replicas never stay up before `WATCH_TIMEOUT` | webhook `DEPLOY > FAILED > #name > timeout after 5m0s: ...`, status HTTP 500 |
 
-Without `wait` the request returns `202` immediately with the deploy ID; poll `/redeploy/status` for the outcome, or rely on the webhook.
 Deploy state lives in memory of this single instance: a restart forgets running deploys and `/redeploy/status` answers `404`.
+
+Before v2 `/redeploy?wait=1` blocked until the rollout finished. That mode is gone because proxies drop long requests; `wait` is now ignored.
 For rollback detection to work, give your services an update policy, e.g. in the stack file:
 ```yml
 deploy:
@@ -95,10 +96,6 @@ deploy:
     - curl -fsS "${DEPLOY_URL}/redeploy/status?key=${DEPLOY_KEY}&deploy=${ID}"
   only:
     - master
-```
-If your proxy allows long requests, a single blocking call still works:
-```yml
-    - curl -fsS --max-time 600 "${DEPLOY_URL}/redeploy?key=${DEPLOY_KEY}&name=${DEPLOY_NAME}&wait=1"
 ```
 DEPLOY_URL - URL of this service, for example http://123.123.123.123:3052
 DEPLOY_KEY - the APP_KEY value
